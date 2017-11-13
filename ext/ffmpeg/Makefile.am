@@ -36,6 +36,7 @@ ffmpeg_libs = \
 	-Wl,$(ffmpeg_builddir)/libavcodec/libavcodec.a \
 	-Wl,$(ffmpeg_builddir)/libavformat/libavformat.a \
 	-Wl,$(ffmpeg_builddir)/libavutil/libavutil.a \
+	-Wl,$(ffmpeg_builddir)/libswresample/libswresample.a \
 	-Wl,--no-whole-archive \
 	-Wl,--version-script,$(srcdir)/libffva_ffmpeg.vers \
 	`$(ffmpeg_extralibs) | $(SED) -e "s/-l/-Wl,-l/g"` \
@@ -95,6 +96,9 @@ FFMPEG_DECODERS	+= vp8
 FFMPEG_PARSERS	+= vp8
 FFMPEG_DECODERS	+= vp9
 
+# Audio codecs
+FFMPEG_DECODERS	+= aac
+
 # Hardware accelerated codecs
 FFMPEG_HWACCELS	+= h263_vaapi
 FFMPEG_HWACCELS	+= h264_vaapi
@@ -142,6 +146,7 @@ ffmpeg.configure.stamp:
 		--enable-avutil						\
 		--enable-avformat					\
 		--enable-avcodec					\
+		--enable-swresample					\
 		--disable-vdpau						\
 		--enable-vaapi						\
 		--enable-bsf="$$ff_filters"				\

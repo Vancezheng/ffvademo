@@ -19,6 +19,7 @@ m4_define([default_builtin_ffmpeg],     [yes])
 m4_define([libavutil_version],          [51.22.1])
 m4_define([libavformat_version],        [53.21.1])
 m4_define([libavcodec_version],         [53.35.0])
+m4_define([libswresample_version],         [2.1.0])
 
 # VA-API minimum version number
 m4_define([va_api_version],             [0.30.4])
@@ -171,6 +172,20 @@ esac
 AC_DEFINE_UNQUOTED([USE_EGL], [$USE_EGL],
     [Defined to 1 if EGL renderer is enabled])
 AM_CONDITIONAL([USE_EGL], [test $USE_EGL -eq 1])
+
+dnl Check for SDL
+USE_SDL=1
+if test $USE_SDL -eq 1; then
+    PKG_CHECK_MODULES([SDL], [sdl])
+    saved_CPPFLAGS="$CPPFLAGS"
+    CPPFLAGS="$CPPFLAGS $SDL_CFLAGS"
+    AC_CHECK_HEADERS([SDL/SDL.h SDL/SDL_thread.h],
+        [USE_SDL=1], [AC_MSG_ERROR([incomplete libsdl-dev (headers) package])])
+    CPPFLAGS="$saved_CPPFLAGS"
+fi
+AC_DEFINE_UNQUOTED([USE_SDL], [$USE_SDL],
+    [Defined to 1 if SDL renderer is enabled])
+AM_CONDITIONAL([USE_SDL], [test $USE_SDL -eq 1])
 
 dnl OpenGL API
 DEFAULT_GLESAPI=default_glesapi
@@ -361,6 +376,16 @@ if test "$enable_builtin_ffmpeg" != "yes"; then
     CPPFLAGS="$saved_CPPFLAGS"
 fi
 
+dnl Check for libswresample
+if test "$enable_builtin_ffmpeg" != "yes"; then
+    PKG_CHECK_MODULES([LIBSWRESAMPLE], [libswresample >= libswresample_version])
+
+    saved_CPPFLAGS="$CPPFLAGS"
+    CPPFLAGS="$CPPFLAGS $LIBSWRESAMPLE_CFLAGS"
+    AC_CHECK_HEADERS([libswresample/swresample.h],
+        [], [AC_MSG_ERROR([incomplete libswresample-dev (headers) package])])
+    CPPFLAGS="$saved_CPPFLAGS"
+fi
 dnl ---------------------------------------------------------------------------
 dnl -- Generate files and summary                                            --
 dnl ---------------------------------------------------------------------------

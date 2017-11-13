@@ -11,8 +11,8 @@ FFMPEG_CFLAGS	= \
 	-I$(top_builddir)/ext/ffmpeg/objs
 FFMPEG_LIBS	= $(top_builddir)/ext/ffmpeg/libffva_ffmpeg.la
 else
-FFMPEG_CFLAGS	= $(LIBAVUTIL_CFLAGS) $(LIBAVFORMAT_CFLAGS) $(LIBAVCODEC_CFLAGS)
-FFMPEG_LIBS	= $(LIBAVUTIL_LIBS) $(LIBAVFORMAT_LIBS) $(LIBAVCODEC_LIBS)
+FFMPEG_CFLAGS	= $(LIBAVUTIL_CFLAGS) $(LIBAVFORMAT_CFLAGS) $(LIBAVCODEC_CFLAGS) $(LIBSWRESAMPLE_CFLAGS)
+FFMPEG_LIBS	= $(LIBAVUTIL_LIBS) $(LIBAVFORMAT_LIBS) $(LIBAVCODEC_LIBS) $(LIBSWRESAMPLE_LIBS)
 endif
 
 libffva_cflags = \
@@ -77,6 +77,11 @@ libffva_source_c		+= $(libffva_source_egl_c)
 libffva_source_h		+= $(libffva_source_egl_h)
 libffva_cflags			+= $(EGL_CFLAGS) $(GLAPI_CFLAGS)
 libffva_libs			+= $(EGL_LIBS) $(GLAPI_LIBS)
+endif
+
+if USE_SDL
+libffva_cflags			+= $(SDL_CFLAGS)
+libffva_libs			+= $(SDL_LIBS)
 endif
 
 libffva_la_SOURCES		= $(libffva_source_c)

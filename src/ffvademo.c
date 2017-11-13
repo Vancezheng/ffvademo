@@ -206,7 +206,8 @@ static bool
 app_ensure_display(App *app)
 {
     if (!app->display) {
-        app->display = ffva_display_new(NULL);
+        app->display = ffva_display_new(getenv("DISPLAY") ? getenv("DISPLAY") : ":0");
+        //app->display = ffva_display_new(NULL);
         if (!app->display)
             goto error_create_display;
         app->va_display = ffva_display_get_va_display(app->display);
@@ -362,6 +363,8 @@ app_ensure_renderer_size(App *app, uint32_t width, uint32_t height)
     if (!app_ensure_renderer(app))
         return false;
 
+    //av_log(app, AV_LOG_INFO, "%s:app render size:%dx%d\n", __func__, app->renderer_width, app->renderer_height);
+    //av_log(app, AV_LOG_INFO, "%s:set size:%dx%d\n", __func__, width, height);
     if (app->renderer_width != width || app->renderer_height != height) {
         if (!ffva_renderer_set_size(app->renderer, width, height))
             return false;
@@ -535,6 +538,9 @@ app_run(App *app)
     if (!ffva_decoder_get_info(app->decoder, &info))
         return false;
 
+    if (ffva_decoder_parse_thread(app->decoder) < 0)
+        return false;
+
     do {
         ret = app_decode_frame(app);
     } while (ret == 0 || ret == AVERROR(EAGAIN));
@@ -640,6 +646,7 @@ main(int argc, char *argv[])
         return EXIT_SUCCESS;
     }
 
+    //av_log_set_level(AV_LOG_DEBUG);
     app = app_new();
     if (!app || !app_parse_options(app, argc, argv) || !app_run(app))
         goto cleanup;

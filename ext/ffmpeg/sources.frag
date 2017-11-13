@@ -26,6 +26,8 @@ ffmpeg_source_dirs = \
 	libavformat \
 	libavutil \
 	libavutil/x86 \
+	libswresample \
+	libswresample/x86 \
 	tests \
 	$(NULL)
 
@@ -328,6 +330,21 @@ ffmpeg_source_c = \
 	libavutil/x86/lls_init.c \
 	libavutil/xga_font_data.c \
 	libavutil/xtea.c \
+    libswresample/audioconvert.c \
+    libswresample/dither.c \
+    libswresample/dither_template.c \
+    libswresample/log2_tab.c \
+    libswresample/noise_shaping_data.c \
+    libswresample/options.c \
+    libswresample/rematrix.c \
+    libswresample/rematrix_template.c \
+    libswresample/resample.c \
+    libswresample/resample_dsp.c \
+    libswresample/resample_template.c \
+    libswresample/soxr_resample.c \
+    libswresample/swresample.c \
+    libswresample/swresample_frame.c \
+    libswresample/swresample-test.c \
 	$(NULL)
 
 ffmpeg_source_h = \
@@ -542,6 +559,10 @@ ffmpeg_source_h = \
 	libpostproc/version.h \
 	libswresample/version.h \
 	libswscale/version.h \
+    libswresample/audioconvert.h \
+    libswresample/resample.h \
+    libswresample/swresample.h \
+    libswresample/swresample_internal.h \
 	$(NULL)
 
 ffmpeg_source_asm = \

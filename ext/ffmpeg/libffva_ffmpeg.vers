@@ -1,6 +1,7 @@
 FFVA_FFMPEG {
 global:
     av*;
+    swr*;
 local:
     *;
 };
