@@ -82,7 +82,7 @@ ffva_renderer_get_type(FFVARenderer *rnd)
 // Returns the size of the rendering device
 bool
 ffva_renderer_get_size(FFVARenderer *rnd, uint32_t *width_ptr,
-    uint32_t *height_ptr)
+    uint32_t *height_ptr, uint32_t *x, uint32_t *y)
 {
     FFVARendererClass *klass;
 
@@ -90,13 +90,17 @@ ffva_renderer_get_size(FFVARenderer *rnd, uint32_t *width_ptr,
         return false;
 
     klass = FFVA_RENDERER_GET_CLASS(rnd);
-    if (klass->get_size && !klass->get_size(rnd, &rnd->width, &rnd->height))
+    if (klass->get_size && !klass->get_size(rnd, &rnd->width, &rnd->height, &rnd->left, &rnd->top))
         return false;
 
     if (width_ptr)
         *width_ptr = rnd->width;
     if (height_ptr)
         *height_ptr = rnd->height;
+    if (x)
+        *x = rnd->left;
+    if (y)
+        *y = rnd->top;
     return true;
 }
 
@@ -120,7 +124,7 @@ ffva_renderer_put_surface(FFVARenderer *rnd, FFVASurface *surface,
 {
     FFVARendererClass *klass;
     VARectangle src_rect_tmp, dst_rect_tmp;
-    uint32_t width, height;
+    uint32_t width, height, x, y;
 
     if (!rnd || !surface || surface->id == VA_INVALID_ID)
         return false;
@@ -134,12 +138,14 @@ ffva_renderer_put_surface(FFVARenderer *rnd, FFVASurface *surface,
     }
 
     if (!dst_rect) {
-        if (!ffva_renderer_get_size(rnd, &width, &height))
-            return false;
-        dst_rect_tmp.x = 0;
-        dst_rect_tmp.y = 0;
-        dst_rect_tmp.width = width;
-        dst_rect_tmp.height = height;
+        if (rnd->width == 0 || rnd->height == 0) {
+            if (!ffva_renderer_get_size(rnd, &width, &height, &x, &y))
+                return false;
+        }
+        dst_rect_tmp.x = rnd->left;
+        dst_rect_tmp.y = rnd->top;
+        dst_rect_tmp.width = rnd->width;
+        dst_rect_tmp.height = rnd->height;
         dst_rect = &dst_rect_tmp;
     }
 

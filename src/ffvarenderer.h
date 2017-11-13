@@ -52,7 +52,7 @@ ffva_renderer_get_type(FFVARenderer *rnd);
 /** Returns the size of the rendering device */
 bool
 ffva_renderer_get_size(FFVARenderer *rnd, uint32_t *width_ptr,
-    uint32_t *height_ptr);
+    uint32_t *height_ptr, uint32_t *x, uint32_t *y);
 
 /** Resizes the rendering device to the supplied dimensions */
 bool

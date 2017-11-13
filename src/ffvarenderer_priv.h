@@ -36,7 +36,7 @@ typedef bool (*FFVARendererInitFunc)(FFVARenderer *rnd, uint32_t flags);
 typedef void (*FFVARendererFinalizeFunc)(FFVARenderer *rnd);
 typedef uintptr_t (*FFVARendererGetVisualIdFunc)(FFVARenderer *rnd);
 typedef bool (*FFVARendererGetSizeFunc)(FFVARenderer *rnd, uint32_t *width_ptr,
-    uint32_t *height_ptr);
+    uint32_t *height_ptr, uint32_t *x, uint32_t *y);
 typedef bool (*FFVARendererSetSizeFunc)(FFVARenderer *rnd, uint32_t width,
     uint32_t height);
 typedef bool (*FFVARendererPutSurfaceFunc)(FFVARenderer *rnd, FFVASurface *s,
@@ -49,6 +49,8 @@ struct ffva_renderer_s {
     void *window;
     uint32_t width;
     uint32_t height;
+    uint32_t left;
+    uint32_t top;
 };
 
 struct ffva_renderer_class_s {

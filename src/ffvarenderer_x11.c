@@ -107,7 +107,7 @@ x11_get_geometry(Display *dpy, Drawable drawable, int *x_ptr, int *y_ptr,
 }
 
 static bool
-window_create(FFVARendererX11 *rnd, uint32_t width, uint32_t height)
+window_create(FFVARendererX11 *rnd, uint32_t x, uint32_t y, uint32_t width, uint32_t height)
 {
     int depth;
     XVisualInfo visualInfo, *vi;
@@ -135,13 +135,15 @@ window_create(FFVARendererX11 *rnd, uint32_t width, uint32_t height)
         XMatchVisualInfo(rnd->display, rnd->screen, depth, TrueColor, vi);
     }
 
-    xswa_mask = CWBorderPixel | CWBackPixel;
+    xswa_mask = CWBorderPixel | CWBackPixel | CWOverrideRedirect;
     xswa.border_pixel = rnd->black_pixel;
     xswa.background_pixel = rnd->white_pixel;
+    xswa.override_redirect = false;
 
     rnd->window = XCreateWindow(rnd->display, rnd->root_window,
-        0, 0, width, height, 0, depth, InputOutput, vi->visual,
+        x, y, rnd->display_width, rnd->display_height, 0, depth, InputOutput, vi->visual,
         xswa_mask, &xswa);
+
     if (vi != &visualInfo)
         XFree(vi);
     if (!rnd->window)
@@ -208,7 +210,7 @@ renderer_finalize(FFVARendererX11 *rnd)
 
 static bool
 renderer_get_size(FFVARendererX11 *rnd, uint32_t *width_ptr,
-    uint32_t *height_ptr)
+    uint32_t *height_ptr, uint32_t *x, uint32_t *y)
 {
     bool success;
 
@@ -222,18 +224,63 @@ renderer_get_size(FFVARendererX11 *rnd, uint32_t *width_ptr,
             return false;
     }
 
+    if(rnd->display_width * rnd->window_height / rnd->window_width <= rnd->display_height) {
+        if (width_ptr)
+            *width_ptr = rnd->display_width;
+        if (height_ptr)
+            *height_ptr = rnd->display_width * rnd->window_height / rnd->window_width;
+        if (x)
+            *x = 0;
+        if (y)
+            *y = (rnd->display_height - *height_ptr) / 2;
+    } else {
+        if (width_ptr)
+            *width_ptr = rnd->display_height * rnd->window_width / rnd->window_height;
+        if (height_ptr)
+            *height_ptr = rnd->display_height;
+        if (x)
+            *x = (rnd->display_width - *width_ptr) / 2;
+        if (y)
+            *y = 0;
+    }
+
+    av_log(rnd, AV_LOG_INFO, "%s:size=%dx%d(%d,%d)\n", __func__, *width_ptr, *height_ptr, *x, *y);
+#if 0
     if (width_ptr)
         *width_ptr = rnd->window_width;
     if (height_ptr)
         *height_ptr = rnd->window_height;
+    av_log(rnd, AV_LOG_INFO, "%s:size=%dx%d\n", __func__, rnd->window_width, rnd->window_height);
+#endif
     return true;
 }
 
 static bool
 renderer_set_size(FFVARendererX11 *rnd, uint32_t width, uint32_t height)
 {
-    if (!rnd->window)
-        return window_create(rnd, width, height);
+    int window_width;
+    int window_height;
+    int dw, dh;
+
+    av_log(rnd, AV_LOG_INFO, "%s:size=%dx%d\n", __func__, width, height);
+    if (!rnd->window) {
+#if 0
+        if(rnd->display_width * height / width <= rnd->display_height) {
+            window_width = rnd->display_width;
+            window_height = rnd->display_width * height / width;
+            dw = 0;
+            dh = (rnd->display_height - window_height) / 2;
+        } else {
+            window_width = rnd->display_height * width / height;
+            window_height = rnd->display_height;
+            dw = (rnd->display_width - window_width) / 2;
+            dh = 0;
+        }
+        av_log(rnd, AV_LOG_INFO, "%s:dw=%d dh=%d size=%dx%d\n", __func__, dw, dh, window_width, window_height);
+        return window_create(rnd, dw, dh, window_width, window_height);
+#endif
+        return window_create(rnd, dw, dh, width, height);
+    }
 
     XResizeWindow(rnd->display, rnd->window, width, height);
     rnd->window_width = width;
