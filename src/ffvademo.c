@@ -160,6 +160,8 @@ print_help(const char *prog)
            "    --list-formats");
 }
 
+App *g_app;
+
 static const AVClass *
 app_class(void)
 {
@@ -450,6 +452,11 @@ app_render_frame(App *app, FFVADecoderFrame *dec_frame)
     return 0;
 }
 
+int render_frame(FFVADecoderFrame *dec_frame)
+{
+    return app_render_frame(g_app, dec_frame);
+}
+
 static int
 app_decode_frame(App *app)
 {
@@ -457,10 +464,12 @@ app_decode_frame(App *app)
     int ret;
 
     ret = ffva_decoder_get_frame(app->decoder, &dec_frame);
+#if 0
     if (ret == 0) {
         ret = app_render_frame(app, dec_frame);
         ffva_decoder_put_frame(app->decoder, dec_frame);
     }
+#endif
     return ret;
 }
 
@@ -541,11 +550,15 @@ app_run(App *app)
     if (ffva_decoder_parse_thread(app->decoder) < 0)
         return false;
 
+    if (ffva_decoder_video_thread(app->decoder) < 0)
+        return false;
+#if 0
     do {
         ret = app_decode_frame(app);
     } while (ret == 0 || ret == AVERROR(EAGAIN));
     if (ret != AVERROR_EOF)
         goto error_decode_frame;
+#endif
     ffva_decoder_stop(app->decoder);
     ffva_decoder_close(app->decoder);
     return true;
@@ -648,6 +661,7 @@ main(int argc, char *argv[])
 
     //av_log_set_level(AV_LOG_DEBUG);
     app = app_new();
+    g_app = app;
     if (!app || !app_parse_options(app, argc, argv) || !app_run(app))
         goto cleanup;
     ret = EXIT_SUCCESS;
