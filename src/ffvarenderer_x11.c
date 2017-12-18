@@ -138,7 +138,7 @@ window_create(FFVARendererX11 *rnd, uint32_t x, uint32_t y, uint32_t width, uint
     xswa_mask = CWBorderPixel | CWBackPixel | CWOverrideRedirect;
     xswa.border_pixel = rnd->black_pixel;
     xswa.background_pixel = rnd->white_pixel;
-    xswa.override_redirect = false;
+    xswa.override_redirect = true;   //fullscreen
 
     rnd->window = XCreateWindow(rnd->display, rnd->root_window,
         x, y, rnd->display_width, rnd->display_height, 0, depth, InputOutput, vi->visual,
@@ -223,7 +223,7 @@ renderer_get_size(FFVARendererX11 *rnd, uint32_t *width_ptr,
         if (!success)
             return false;
     }
-
+#if 0
     if(rnd->display_width * rnd->window_height / rnd->window_width <= rnd->display_height) {
         if (width_ptr)
             *width_ptr = rnd->display_width;
@@ -243,15 +243,19 @@ renderer_get_size(FFVARendererX11 *rnd, uint32_t *width_ptr,
         if (y)
             *y = 0;
     }
-
-    av_log(rnd, AV_LOG_INFO, "%s:size=%dx%d(%d,%d)\n", __func__, *width_ptr, *height_ptr, *x, *y);
-#if 0
+#else
     if (width_ptr)
-        *width_ptr = rnd->window_width;
+        //*width_ptr = rnd->window_width;
+        *width_ptr = rnd->display_width;
     if (height_ptr)
-        *height_ptr = rnd->window_height;
-    av_log(rnd, AV_LOG_INFO, "%s:size=%dx%d\n", __func__, rnd->window_width, rnd->window_height);
+        //*height_ptr = rnd->window_height;
+        *height_ptr = rnd->display_height;
+    if (x)
+        *x = 0;
+    if (y)
+        *y = 0;
 #endif
+    av_log(rnd, AV_LOG_INFO, "%s:size=%dx%d(%d,%d)\n", __func__, *width_ptr, *height_ptr, *x, *y);
     return true;
 }
 
