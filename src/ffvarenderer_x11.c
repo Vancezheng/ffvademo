@@ -138,7 +138,11 @@ window_create(FFVARendererX11 *rnd, uint32_t x, uint32_t y, uint32_t width, uint
     xswa_mask = CWBorderPixel | CWBackPixel | CWOverrideRedirect;
     xswa.border_pixel = rnd->black_pixel;
     xswa.background_pixel = rnd->white_pixel;
-    xswa.override_redirect = true;   //fullscreen
+    if (rnd->is_fullscreen) {
+        xswa.override_redirect = true;   //fullscreen
+    } else {
+        xswa.override_redirect = false;
+    }
 
     rnd->window = XCreateWindow(rnd->display, rnd->root_window,
         x, y, rnd->display_width, rnd->display_height, 0, depth, InputOutput, vi->visual,
@@ -191,6 +195,7 @@ renderer_init(FFVARendererX11 *rnd, uint32_t flags)
     rnd->root_window = RootWindow(rnd->display, rnd->screen);
     rnd->black_pixel = BlackPixel(rnd->display, rnd->screen);
     rnd->white_pixel = WhitePixel(rnd->display, rnd->screen);
+    rnd->is_fullscreen = true;
     return true;
 }
 

@@ -38,6 +38,7 @@
 #include "ffmpeg_utils.h"
 #include "vaapi_utils.h"
 
+#define USE_VIDEO_SYNC 1
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
 #define MAX_AUDIO_FRAME_SIZE 192000
@@ -102,9 +103,11 @@ struct ffva_decoder_s {
     double video_clock; ///<pts of last decoded frame / predicted pts of next decoded frame
     double video_current_pts; ///<current displayed pts (different from video_clock if frame fifos are used)
     int64_t video_current_pts_time;  ///<time (av_gettime) at which we updated video_current_pts - used to have running video pts
+    int64_t video_last_pts_time;
     double frame_timer;
     double frame_last_pts;
     double frame_last_delay;
+    int64_t video_last_time;
 
     AVFrame *audio_frame;
     AVPacket audio_pkt;
@@ -150,6 +153,8 @@ struct ffva_decoder_s {
     SDL_mutex       *pictq_mutex;
     SDL_cond        *pictq_cond;
 };
+
+static int lastTime; // us
 
 void packet_queue_init(PacketQueue *q) {
     memset(q, 0, sizeof(PacketQueue));
@@ -918,9 +923,10 @@ int synchronize_audio(FFVADecoder *dec, short *samples,
                     //max_size = samples_size * ((100 + SAMPLE_CORRECTION_PERCENT_MAX) / 100);
                     min_size = 0;
                     max_size = samples_size;
-                    //av_log(NULL, AV_LOG_DEBUG, "diff=%f adiff=%f sample_diff=%d apts=%0.3f %f\n",
+                    //av_log(dec, AV_LOG_DEBUG, "diff=%f adiff=%f sample_diff=%d apts=%0.3f %f\n",
                     //        diff, avg_diff, wanted_size - samples_size,
                     //        dec->audio_clock, dec->audio_diff_threshold);
+                    //av_log(dec, AV_LOG_DEBUG, "wanted_size=%d sample_size=%d min_size=%d max_size=%d\n", wanted_size, samples_size, min_size, max_size);
                     if(wanted_size < min_size) {
                         wanted_size = min_size;
                     } else if (wanted_size > max_size) {
@@ -1086,9 +1092,10 @@ decoder_open(FFVADecoder *dec, const char *filename)
             dec->video_stream = fmtctx->streams[i];
             avctx = dec->video_stream->codec;
 
-            dec->frame_timer = (double)(av_gettime_relative())/ 1000000.0;
+            dec->frame_timer = (double)(av_gettime_relative())/ 1000000.0 - 1.0;
             dec->frame_last_delay = 40e-3;
             dec->video_current_pts_time = av_gettime_relative();
+            //lastTime =av_gettime_relative();
 
             decoder_init_context(dec, avctx);
 
@@ -1203,8 +1210,10 @@ double synchronize_video(FFVADecoder *dec, double pts) {
 
 int queue_picture(FFVADecoder *dec, FFVADecoderFrame frame, double pts) {
     SDL_LockMutex(dec->pictq_mutex);
+    //av_log(dec, AV_LOG_INFO, "%s:pictq_size=%d\n", __func__, dec->pictq_size);
     while(dec->pictq_size >= VIDEO_PICTURE_QUEUE_SIZE &&
             !dec->quit) {
+        //av_log(dec, AV_LOG_INFO, "cond wait2++++\n");
         SDL_CondWait(dec->pictq_cond, dec->pictq_mutex);
     }
     SDL_UnlockMutex(dec->pictq_mutex);
@@ -1222,15 +1231,40 @@ int queue_picture(FFVADecoder *dec, FFVADecoderFrame frame, double pts) {
     }
     SDL_LockMutex(dec->pictq_mutex);
     dec->pictq_size++;
+    SDL_CondSignal(dec->pictq_cond);
+    //av_log(dec, AV_LOG_INFO, "cond signal1----\n");
     SDL_UnlockMutex(dec->pictq_mutex);
 
     return 0;
 }
 
+int cal_fps()
+{
+    static int fps = 0;
+    static int frameCount = 0;
+    int curTime;
+
+    ++frameCount;
+
+    curTime = av_gettime_relative();
+    if (curTime - lastTime > 1000000)
+    {
+        fps = frameCount;
+        frameCount = 0;
+        lastTime = curTime;
+    }
+    return fps;
+}
+
 void video_display(FFVADecoder *dec) {
     FFVADecoderFrame *dec_frame;
+    int64_t video_current_time;
 
-    //av_log(dec, AV_LOG_INFO, "video display frame:pictq_rindex=%d\n", dec->pictq_rindex);
+    //av_log(dec, AV_LOG_INFO, "%s:pictq_rindex=%d\n", __func__, dec->pictq_rindex);
+    //video_current_time = av_gettime_relative();
+    //av_log(NULL, AV_LOG_INFO, "%s:video frame delay=%ldms\n", __func__, (video_current_time - dec->video_last_time)/1000);
+    //av_log(NULL, AV_LOG_INFO, "%s:video fps=%d\n", __func__, cal_fps());
+    dec->video_last_time = video_current_time;
     dec_frame = &dec->pictq[dec->pictq_rindex];
     render_frame(dec_frame);
     ffva_decoder_put_frame(dec, dec_frame);
@@ -1242,19 +1276,27 @@ void video_refresh_timer(void *userdata) {
     double actual_delay, delay, sync_threshold, ref_clock, diff;
 
     if(dec->video_stream) {
-        if(dec->pictq_size == 0) {
-            schedule_refresh(dec, 1);
-        } else {
+        //av_log(dec, AV_LOG_INFO, "%s:pictq_size=%d\n", __func__, dec->pictq_size);
+        //if(dec->pictq_size == 0) {
+        //    schedule_refresh(dec, 1);
+        //} else {
+            SDL_LockMutex(dec->pictq_mutex);
+            while(dec->pictq_size == 0) {
+                //av_log(dec, AV_LOG_INFO, "cond wait1++++\n");
+                SDL_CondWait(dec->pictq_cond, dec->pictq_mutex);
+            }
+            SDL_UnlockMutex(dec->pictq_mutex);
+#if USE_VIDEO_SYNC
             vp = &dec->pictq[dec->pictq_rindex];
-
             dec->video_current_pts = vp->pts;
             dec->video_current_pts_time = av_gettime_relative();
             delay = vp->pts - dec->frame_last_pts; /* the pts from last time */
-            //av_log(dec, AV_LOG_DEBUG, "video_current_pts=%lf video_current_pts_time=%ld delay=%lf\n", dec->video_current_pts, dec->video_current_pts_time, delay);
-            if(delay <= 0 || delay >= 1.0) {
-                /* if incorrect delay, use previous one */
-                delay = dec->frame_last_delay;
-            }
+            //av_log(dec, AV_LOG_INFO, "video_current_pts=%lfs time delay=%lfs pts delay=%lfs\n", dec->video_current_pts, (dec->video_current_pts_time - dec->video_last_pts_time) / 1000000.0, delay);
+            dec->video_last_pts_time = dec->video_current_pts_time;
+            //if(delay <= 0 || delay >= 1.0) {
+            //    /* if incorrect delay, use previous one */
+            //    delay = dec->frame_last_delay;
+            //}
             /* save for next time */
             dec->frame_last_delay = delay;
             dec->frame_last_pts = vp->pts;
@@ -1278,15 +1320,19 @@ void video_refresh_timer(void *userdata) {
             dec->frame_timer += delay;
             /* computer the REAL delay */
             actual_delay = dec->frame_timer - (av_gettime_relative() / 1000000.0);
-            //av_log(dec, AV_LOG_DEBUG, "ref_clock=%lf diff=%lf delay=%lf actual_delay=%lf\n", ref_clock, diff, delay, actual_delay);
+            if (actual_delay < -1.0 || actual_delay > 1.0) {
+                av_log(dec, AV_LOG_INFO, "ref_clock=%lf diff=%lf delay=%lf actual_delay=%lf\n", ref_clock, diff, delay, actual_delay);
+            }
             if(actual_delay < 0.010) {
                 /* Really it should skip the picture instead */
                 actual_delay = 0.010;
             }
             schedule_refresh(dec, (int)(actual_delay * 1000 + 0.5));
-
+            //schedule_refresh(dec, 10);
+#endif
             /* show the picture! */
             video_display(dec);
+            //schedule_refresh(dec, (int)(actual_delay * 1000 + 0.5));
 
             /* update queue for next picture! */
             if(++dec->pictq_rindex == VIDEO_PICTURE_QUEUE_SIZE) {
@@ -1295,8 +1341,9 @@ void video_refresh_timer(void *userdata) {
             SDL_LockMutex(dec->pictq_mutex);
             dec->pictq_size--;
             SDL_CondSignal(dec->pictq_cond);
+            //av_log(dec, AV_LOG_INFO, "cond signal2----\n");
             SDL_UnlockMutex(dec->pictq_mutex);
-        }
+        //}
     } else {
         schedule_refresh(dec, 100);
     }
@@ -1721,13 +1768,13 @@ ffva_decoder_video_thread(FFVADecoder *dec)
     dec->pictq_mutex = SDL_CreateMutex();
     dec->pictq_cond = SDL_CreateCond();
 
-    schedule_refresh(dec, 40);
-
     dec->video_tid = SDL_CreateThread(video_thread, dec);
     if(!dec->video_tid) {
         av_log(dec, AV_LOG_ERROR, "%s:create thread failed!\n", __func__);
         return -1;
     }
+#if USE_VIDEO_SYNC
+    schedule_refresh(dec, 40);
 
     for(;;) {
         ret = SDL_WaitEvent(&event);
@@ -1744,5 +1791,10 @@ ffva_decoder_video_thread(FFVADecoder *dec)
                 break;
         }
     }
+#else
+    for(;;) {
+        video_refresh_timer(dec);
+    }
+#endif
     return 0;
 }
