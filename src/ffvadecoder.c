@@ -156,6 +156,21 @@ struct ffva_decoder_s {
 
 static int lastTime; // us
 
+char *get_cur_time()
+{
+    static char s[20];
+    time_t t;
+    struct tm* ltime;
+
+    time(&t);
+
+    ltime = localtime(&t);
+
+    strftime(s, 20, "%Y-%m-%d %H:%M:%S", ltime);
+
+    return s;
+}
+
 void packet_queue_init(PacketQueue *q) {
     memset(q, 0, sizeof(PacketQueue));
     q->mutex = SDL_CreateMutex();
@@ -1095,7 +1110,7 @@ decoder_open(FFVADecoder *dec, const char *filename)
             dec->frame_timer = (double)(av_gettime_relative())/ 1000000.0 - 1.0;
             dec->frame_last_delay = 40e-3;
             dec->video_current_pts_time = av_gettime_relative();
-            //lastTime =av_gettime_relative();
+            //lastTime = av_gettime_relative();
 
             decoder_init_context(dec, avctx);
 
@@ -1286,10 +1301,10 @@ void video_refresh_timer(void *userdata) {
                 SDL_CondWait(dec->pictq_cond, dec->pictq_mutex);
             }
             SDL_UnlockMutex(dec->pictq_mutex);
-#if USE_VIDEO_SYNC
             vp = &dec->pictq[dec->pictq_rindex];
             dec->video_current_pts = vp->pts;
             dec->video_current_pts_time = av_gettime_relative();
+#if USE_VIDEO_SYNC
             delay = vp->pts - dec->frame_last_pts; /* the pts from last time */
             //av_log(dec, AV_LOG_INFO, "video_current_pts=%lfs time delay=%lfs pts delay=%lfs\n", dec->video_current_pts, (dec->video_current_pts_time - dec->video_last_pts_time) / 1000000.0, delay);
             dec->video_last_pts_time = dec->video_current_pts_time;
@@ -1321,7 +1336,8 @@ void video_refresh_timer(void *userdata) {
             /* computer the REAL delay */
             actual_delay = dec->frame_timer - (av_gettime_relative() / 1000000.0);
             if (actual_delay < -1.0 || actual_delay > 1.0) {
-                av_log(dec, AV_LOG_INFO, "ref_clock=%lf diff=%lf delay=%lf actual_delay=%lf\n", ref_clock, diff, delay, actual_delay);
+                //av_log(dec, AV_LOG_INFO, "ref_clock=%lf diff=%lf delay=%lf actual_delay=%lf\n", ref_clock, diff, delay, actual_delay);
+                av_log(dec, AV_LOG_INFO, "%s  delay=%lf actual_delay=%lf\n", get_cur_time(), delay, actual_delay);
             }
             if(actual_delay < 0.010) {
                 /* Really it should skip the picture instead */
@@ -1398,6 +1414,7 @@ decode_packet(FFVADecoder *dec, AVPacket *packet, int *got_frame_ptr)
         got_frame_ptr = &got_frame;
 
     ret = avcodec_decode_video2(dec->video_avctx, dec->video_frame, got_frame_ptr, packet);
+    //av_log(dec, AV_LOG_INFO, "%s:ret=%d got_frame=%d\n", __func__, ret, *got_frame_ptr);
     if (ret < 0)
         goto error_decode_frame;
 
@@ -1435,11 +1452,9 @@ decoder_run(FFVADecoder *dec)
         if (packet.stream_index == dec->video_stream->index) {
             ret = decode_packet(dec, &packet, NULL);
             av_free_packet(&packet);
-        }
-        else if (packet.stream_index == dec->audio_stream->index) {
-            ret = packet_queue_put(&dec->audioq, &packet);
-        }
-        else
+        } else if (packet.stream_index == dec->audio_stream->index) {
+            packet_queue_put(&dec->audioq, &packet);
+        } else
             ret = AVERROR(EAGAIN);
     } while (ret == AVERROR(EAGAIN));
     if (ret == 0)
@@ -1739,6 +1754,7 @@ int video_thread(void *arg)
         //}
         //pts *= av_q2d(dec->video_stream->time_base);
         pts = packet->pts * av_q2d(dec->video_stream->time_base);
+        //av_log(dec, AV_LOG_INFO, "video pts=%lf, video_stream->timebase=%d/%d\n", pts, dec->video_stream->time_base.num,  dec->video_stream->time_base.den);
 
         // Did we get a video frame?
         if(got_frame) {

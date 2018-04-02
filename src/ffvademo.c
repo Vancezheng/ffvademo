@@ -464,12 +464,10 @@ app_decode_frame(App *app)
     int ret;
 
     ret = ffva_decoder_get_frame(app->decoder, &dec_frame);
-#if 0
     if (ret == 0) {
         ret = app_render_frame(app, dec_frame);
         ffva_decoder_put_frame(app->decoder, dec_frame);
     }
-#endif
     return ret;
 }
 
@@ -547,12 +545,13 @@ app_run(App *app)
     if (!ffva_decoder_get_info(app->decoder, &info))
         return false;
 
+#if 1
     if (ffva_decoder_parse_thread(app->decoder) < 0)
         return false;
 
     if (ffva_decoder_video_thread(app->decoder) < 0)
         return false;
-#if 0
+#else
     do {
         ret = app_decode_frame(app);
     } while (ret == 0 || ret == AVERROR(EAGAIN));

@@ -154,7 +154,7 @@ ffmpeg.configure.stamp:
 		--enable-demuxer="$$ff_demuxers"			\
 		--enable-hwaccel="$$ff_hwaccels"			\
 		--enable-parser="$$ff_parsers"				\
-		--enable-protocol="file,tcp"				\
+		--enable-protocol="file,tcp,rtmp"			\
 		--enable-runtime-cpudetect				&& \
 	cd ..								&& \
 	touch $@
