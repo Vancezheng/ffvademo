@@ -32,6 +32,8 @@
 #include "ffvarenderer.h"
 #include "ffmpeg_utils.h"
 #include "vaapi_utils.h"
+#include <signal.h>
+#include <SDL.h>
 
 #if USE_DRM
 # include "ffvarenderer_drm.h"
@@ -126,6 +128,12 @@ static const AVOption app_options[] = {
       AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, },
     { NULL, }
 };
+
+extern int
+ffva_decoder_parse_thread(FFVADecoder *dec);
+
+extern int
+ffva_decoder_video_thread(FFVADecoder *dec);
 
 static void
 app_free(App *app);
@@ -558,8 +566,8 @@ app_run(App *app)
     if (ret != AVERROR_EOF)
         goto error_decode_frame;
 #endif
-    ffva_decoder_stop(app->decoder);
-    ffva_decoder_close(app->decoder);
+    // ffva_decoder_stop(app->decoder);
+    // ffva_decoder_close(app->decoder);
     return true;
 
     /* ERRORS */
@@ -647,6 +655,14 @@ error_set_option:
     return false;
 }
 
+void sig_usr(int signo)
+{
+    av_log(NULL, AV_LOG_INFO, "%s:signo=%d\n", __func__, signo);
+    SDL_Event event;
+    event.type = SDL_QUIT;
+    SDL_PushEvent(&event);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -658,7 +674,10 @@ main(int argc, char *argv[])
         return EXIT_SUCCESS;
     }
 
-    //av_log_set_level(AV_LOG_DEBUG);
+    // struct sigaction sa_usr;
+    // sa_usr.sa_flags = 0;
+    // sa_usr.sa_handler = sig_usr;
+    signal(SIGINT , sig_usr);
     app = app_new();
     g_app = app;
     if (!app || !app_parse_options(app, argc, argv) || !app_run(app))
@@ -667,5 +686,6 @@ main(int argc, char *argv[])
 
 cleanup:
     app_free(app);
+    av_log(app, AV_LOG_INFO, "app exit success\n");
     return ret;
 }

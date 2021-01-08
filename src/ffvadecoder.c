@@ -83,6 +83,7 @@ typedef struct PacketQueue {
   int size;
   SDL_mutex *mutex;
   SDL_cond *cond;
+  int abort_request;
 } PacketQueue;
 
 typedef struct AudioParams {
@@ -193,6 +194,8 @@ int packet_queue_put(PacketQueue *q, AVPacket *pkt) {
     pkt1->pkt = *pkt;
     pkt1->next = NULL;
 
+    if (q->abort_request)
+       return -1;
 
     SDL_LockMutex(q->mutex);
 
@@ -217,6 +220,10 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     SDL_LockMutex(q->mutex);
 
     for(;;) {
+        if (q->abort_request) {
+            ret = -1;
+            break;
+        }
         pkt1 = q->first_pkt;
         if (pkt1) {
             q->first_pkt = pkt1->next;
@@ -239,6 +246,40 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     return ret;
 }
 
+static void packet_queue_flush(PacketQueue *q)
+{
+    AVPacketList *pkt, *pkt1;
+
+    SDL_LockMutex(q->mutex);
+    for (pkt = q->first_pkt; pkt; pkt = pkt1) {
+        pkt1 = pkt->next;
+        av_free_packet(&pkt->pkt);
+        av_freep(&pkt);
+    }
+    q->last_pkt = NULL;
+    q->first_pkt = NULL;
+    q->nb_packets = 0;
+    q->size = 0;
+    SDL_UnlockMutex(q->mutex);
+}
+
+static void packet_queue_destroy(PacketQueue *q)
+{
+    packet_queue_flush(q);
+    SDL_DestroyMutex(q->mutex);
+    SDL_DestroyCond(q->cond);
+}
+
+static void packet_queue_abort(PacketQueue *q)
+{
+    SDL_LockMutex(q->mutex);
+
+    q->abort_request = 1;
+
+    SDL_CondSignal(q->cond);
+
+    SDL_UnlockMutex(q->mutex);
+}
 /* ------------------------------------------------------------------------ */
 /* --- VA-API Decoder                                                   --- */
 /* ------------------------------------------------------------------------ */
@@ -1079,6 +1120,12 @@ static int audio_decoder_open(FFVADecoder *dec)
     return 0;
 }
 
+static int decode_interrupt_cb(void *ctx)
+{
+    FFVADecoder *dec = ctx;
+    return dec->quit;
+}
+
 static int
 decoder_open(FFVADecoder *dec, const char *filename)
 {
@@ -1093,11 +1140,15 @@ decoder_open(FFVADecoder *dec, const char *filename)
 
     dec->av_sync_type = DEFAULT_AV_SYNC_TYPE;
     // Open and identify media file
+    dec->fmtctx = avformat_alloc_context();
+    dec->fmtctx->interrupt_callback.callback = decode_interrupt_cb;
+    dec->fmtctx->interrupt_callback.opaque = dec;
+    dec->fmtctx->max_analyze_duration2 = 1000000;
+
     ret = avformat_open_input(&dec->fmtctx, filename, NULL, NULL);
     if (ret != 0)
         goto error_open_file;
 
-    dec->fmtctx->max_analyze_duration2 = 1000000;
     ret = avformat_find_stream_info(dec->fmtctx, NULL);
     if (ret < 0)
         goto error_identify_file;
@@ -1185,6 +1236,7 @@ error_alloc_frame:
 static void
 decoder_close(FFVADecoder *dec)
 {
+    // av_log(dec, AV_LOG_INFO, "%s begin\n", __func__);
     ffva_decoder_stop(dec);
 
     if (dec->video_avctx) {
@@ -1205,6 +1257,7 @@ decoder_close(FFVADecoder *dec)
     av_frame_free(&dec->audio_frame);
 
     dec->state &= ~STATE_OPENED;
+    // av_log(dec, AV_LOG_INFO, "%s end\n", __func__);
 }
 
 double synchronize_video(FFVADecoder *dec, double pts) {
@@ -1250,7 +1303,7 @@ int queue_picture(FFVADecoder *dec, FFVADecoderFrame frame, double pts) {
     }
     SDL_LockMutex(dec->pictq_mutex);
     dec->pictq_size++;
-    SDL_CondSignal(dec->pictq_cond);
+    // SDL_CondSignal(dec->pictq_cond);
     //av_log(dec, AV_LOG_INFO, "cond signal1----\n");
     SDL_UnlockMutex(dec->pictq_mutex);
 
@@ -1294,17 +1347,22 @@ void video_refresh_timer(void *userdata) {
     FFVADecoderFrame *vp;
     double actual_delay, delay, sync_threshold, ref_clock, diff;
 
+    if (dec->quit) {
+        av_log(dec, AV_LOG_INFO, "%s: quit\n", __func__);
+        return;
+    }
     if(dec->video_stream) {
         //av_log(dec, AV_LOG_INFO, "%s:pictq_size=%d\n", __func__, dec->pictq_size);
-        //if(dec->pictq_size == 0) {
-        //    schedule_refresh(dec, 1);
-        //} else {
-            SDL_LockMutex(dec->pictq_mutex);
-            while(dec->pictq_size == 0) {
-                //av_log(dec, AV_LOG_INFO, "cond wait1++++\n");
-                SDL_CondWait(dec->pictq_cond, dec->pictq_mutex);
-            }
-            SDL_UnlockMutex(dec->pictq_mutex);
+        if(dec->pictq_size == 0) {
+           schedule_refresh(dec, 1);
+        } else {
+            // SDL_LockMutex(dec->pictq_mutex);
+            // while(dec->pictq_size == 0) {
+            //     av_log(dec, AV_LOG_INFO, "cond wait1++++\n");
+            //     SDL_CondWait(dec->pictq_cond, dec->pictq_mutex);
+            //     av_log(dec, AV_LOG_INFO, "cond wait1----\n");
+            // }
+            // SDL_UnlockMutex(dec->pictq_mutex);
             vp = &dec->pictq[dec->pictq_rindex];
             dec->video_current_pts = vp->pts;
             dec->video_current_pts_time = av_gettime();
@@ -1369,7 +1427,7 @@ void video_refresh_timer(void *userdata) {
             SDL_CondSignal(dec->pictq_cond);
             //av_log(dec, AV_LOG_INFO, "cond signal2----\n");
             SDL_UnlockMutex(dec->pictq_mutex);
-        //}
+        }
     } else {
         schedule_refresh(dec, 100);
     }
@@ -1504,6 +1562,26 @@ decoder_start(FFVADecoder *dec)
 
     dec->state |= STATE_STARTED;
     return 0;
+}
+
+static void pictq_signal(FFVADecoder *dec)
+{
+    SDL_LockMutex(dec->pictq_mutex);
+    SDL_CondSignal(dec->pictq_cond);
+    SDL_UnlockMutex(dec->pictq_mutex);
+}
+
+static void decoder_abort(FFVADecoder *dec)
+{
+    // av_log(dec, AV_LOG_INFO, "%s:begin\n", __func__);
+    packet_queue_abort(&dec->videoq);
+    packet_queue_abort(&dec->audioq);
+    pictq_signal(dec);
+    SDL_WaitThread(dec->video_tid, NULL);
+    dec->video_tid = NULL;
+    packet_queue_flush(&dec->audioq);
+    packet_queue_flush(&dec->videoq);
+    // av_log(dec, AV_LOG_INFO, "%s:end\n", __func__);
 }
 
 static int
@@ -1759,6 +1837,9 @@ int video_thread(void *arg)
         //if (dec->videoq.nb_packets != 0)
         //    av_log(dec, AV_LOG_INFO, "%s  get video packet number:%d\n", get_cur_time(), dec->videoq.nb_packets);
 
+        if(dec->quit)
+            return -1;
+
         if(packet_queue_get(&dec->videoq, packet, 1) < 0) {
             // means we quit getting packets
             av_log(dec, AV_LOG_ERROR, "%s:get packet error\n", __func__);
@@ -1798,6 +1879,32 @@ int video_thread(void *arg)
     //return NULL;
 }
 
+static void stream_close(FFVADecoder *dec)
+{
+    /* XXX: use a special url_shutdown call to abort parse cleanly */
+    // av_log(dec, AV_LOG_INFO, "%s:start\n", __func__);
+    SDL_WaitThread(dec->parse_tid, NULL);
+    dec->parse_tid = NULL;
+    packet_queue_destroy(&dec->videoq);
+    packet_queue_destroy(&dec->audioq);
+    // av_log(dec, AV_LOG_INFO, "%s:end\n", __func__);
+}
+
+void do_exit(FFVADecoder *dec)
+{
+    // av_log(dec, AV_LOG_INFO, "do_exit begin\n");
+    dec->quit = 1;
+    decoder_abort(dec);
+    stream_close(dec);
+
+    avformat_network_deinit();
+    // av_log(dec, AV_LOG_INFO, "%s:SDL_Quit begin\n", __func__);
+    SDL_CloseAudio();
+    SDL_Quit();
+    // av_log(dec, AV_LOG_INFO, "%s:SDL_Quit end\n", __func__);
+    // av_log(dec, AV_LOG_INFO, "do_exit end\n");
+}
+
 int
 ffva_decoder_video_thread(FFVADecoder *dec)
 {
@@ -1820,13 +1927,12 @@ ffva_decoder_video_thread(FFVADecoder *dec)
 #if USE_VIDEO_SYNC
     schedule_refresh(dec, 40);
 
-    for(;;) {
+    while (!dec->quit) {
         ret = SDL_WaitEvent(&event);
-        //av_log(dec, AV_LOG_INFO, "%s:ret=%d event type=%d\n", __func__, ret, event.type);
         switch(event.type) {
             case SDL_QUIT:
-                dec->quit = 1;
-                SDL_Quit();
+                av_log(dec, AV_LOG_INFO, "%s event:%d\n", __func__, event.type);
+                do_exit(dec);
                 break;
             case FF_REFRESH_EVENT:
                 video_refresh_timer(event.user.data1);
